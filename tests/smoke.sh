@@ -56,13 +56,14 @@ test "$PID1_COMM" = "tini"
 docker exec "$NAME" ps -eo user,comm | grep -qE '^abc[[:space:]]+nginx$'
 docker exec "$NAME" ps -eo user,comm | grep -qE '^abc[[:space:]]+php-fpm8\.4$'
 
-# Verify brotli compression works (create a >512B static file and request Accept-Encoding: br)
-python3 -c 'print("brotli-test-payload " * 60)' > "${TMPCONF}/www/brotli.txt"
+# Verify brotli compression works (create a >512B static file inside /config/www and request Accept-Encoding: br)
+docker exec "$NAME" sh -c 'python3 -c "print(\"brotli-test-payload \" * 60)" 2>/dev/null || awk "BEGIN{for(i=0;i<60;i++) printf \"brotli-test-payload \"; print \"\"}"' \
+  | docker exec -i "$NAME" sh -c 'cat > /config/www/brotli.txt && chown abc:abc /config/www/brotli.txt'
 BR_HDR="$(curl -skI -H 'Accept-Encoding: br' https://127.0.0.1:18443/brotli.txt | tr -d '\r')"
 printf '%s\n' "$BR_HDR" | grep -qi '^content-encoding: br'
 
 # Verify PHP 8.4 FPM executes scripts on 127.0.0.1:9000
-cat > "${TMPCONF}/www/smoke.php" <<'PHP'
+docker exec -i "$NAME" sh -c 'cat > /config/www/smoke.php && chown abc:abc /config/www/smoke.php' <<'PHP'
 <?php
 header('Content-Type: text/plain');
 echo 'PHP-OK:' . PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
