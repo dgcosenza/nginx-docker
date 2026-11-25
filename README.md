@@ -31,10 +31,10 @@ A source-built **NGINX** (stable 1.30.x with **HTTP/3**, **Brotli**, and **PHP 8
 | --- | --- |
 | NGINX | `1.30.8` |
 | ngx_brotli | `53e0fb5` |
-| PHP-FPM | `8.4` |
+| PHP-FPM | `8.4.28` |
 | Base OS | `Debian 13.8 (trixie-slim)` |
-| Last verified build (UTC) | `2026-11-24` |
-| Security gate (Trivy + Grype) | **0 fixable Critical/High** (0 upstream-unfixed) |
+| Last verified build (UTC) | `2026-11-25` |
+| Security gate (Trivy + Grype) | **0 fixable Critical/High** (30 upstream-unfixed) |
 <!-- versions:end -->
 
 ---

@@ -7,6 +7,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mai
 ---
 <!-- changelog:auto -->
 
+## [1.30.8] — 2026-11-25
+
+### Automated Daily Build
+- Verified components: NGINX `1.30.8`, ngx_brotli `53e0fb5`, PHP-FPM `8.4.28`, Base OS `Debian 13.8 (trixie-slim)`.
+- Upstream status: no new upstream release since previous build; refreshed base OS and dependencies.
+- Vulnerability gate: **0 fixable Critical/High** in Trivy and Grype (30 upstream-unfixed).
+
+---
+
 ## [1.30.8] — 2026-11-24
 
 ### Added
