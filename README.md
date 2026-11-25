@@ -42,10 +42,10 @@ A source-built **NGINX** (stable 1.30.x with **HTTP/3**, **Brotli**, and **PHP 8
 | PHP-FPM | `8.4.28` |
 | Base OS | `Debian 13.8 (trixie-slim)` |
 | Architectures | `linux/amd64, linux/arm64` |
-| Uncompressed size (per arch) | `amd64: 90.0 MB, arm64: 262.0 MB` |
+| Uncompressed size (per arch) | `amd64: 90.1 MB, arm64: 262.2 MB` |
 | Last verified build (UTC) | `2026-11-25` |
-| Published multi-arch digest | `dgcosenza/nginx@sha256:7564fbc57634c7b93aa1c49ef45d370bf65e5d191d394e8f5d4c7a52e1ab0c48` |
-| GHCR mirror | `ghcr.io/dgcosenza/nginx@sha256:7564fbc57634c7b93aa1c49ef45d370bf65e5d191d394e8f5d4c7a52e1ab0c48` |
+| Published multi-arch digest | `dgcosenza/nginx@sha256:8a1e7604e28ade83e92fbfe2ea34d8644ccfa167bf475e87b87af1cbce2bc6b6` |
+| GHCR mirror | `ghcr.io/dgcosenza/nginx@sha256:8a1e7604e28ade83e92fbfe2ea34d8644ccfa167bf475e87b87af1cbce2bc6b6` |
 | Supply chain | Cosign OIDC signed + SPDX & CycloneDX SBOM attestations + SLSA Build L3 provenance |
 | Security gate (Trivy + Grype on SBOM) | **0 fixable Critical/High** (30 upstream-unfixed) |
 <!-- versions:end -->
