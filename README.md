@@ -44,8 +44,8 @@ A source-built **NGINX** (stable 1.30.x with **HTTP/3**, **Brotli**, and **PHP 8
 | Architectures | `linux/amd64, linux/arm64` |
 | Uncompressed size (per arch) | `amd64: 90.8 MB, arm64: 264.8 MB` |
 | Last verified build (UTC) | `2026-11-25` |
-| Published multi-arch digest | `dgcosenza/nginx@sha256:6dc2ab4f9e56b434faac48d1d0742261b6fab23e89ee338812f9e23bc870beb6` |
-| GHCR mirror | `ghcr.io/dgcosenza/nginx@sha256:6dc2ab4f9e56b434faac48d1d0742261b6fab23e89ee338812f9e23bc870beb6` |
+| Published multi-arch digest | `dgcosenza/nginx@sha256:2663cd83c6e845f453458efb6aa38d49fbd09fa9489020bb6389a01489434a66` |
+| GHCR mirror | `ghcr.io/dgcosenza/nginx@sha256:2663cd83c6e845f453458efb6aa38d49fbd09fa9489020bb6389a01489434a66` |
 | Supply chain | Cosign OIDC signed + SPDX & CycloneDX SBOM attestations + SLSA Build L3 provenance |
 | Security gate (Trivy + Grype on SBOM) | **0 fixable Critical/High** (30 upstream-unfixed) |
 <!-- versions:end -->
