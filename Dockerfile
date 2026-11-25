@@ -3,13 +3,15 @@
 ARG DEBIAN_BASE=debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ARG NGINX_VERSION=1.30.8
 ARG NGX_BROTLI_COMMIT=53e0fb55f250f48fe80c0ddbf6c0f7103cdbaae1
+ARG HEADERS_MORE_COMMIT=e30b10e0bb1cfb042d76ba3a865410ff95d65660
 
-# ---- Stage 1: compile official NGINX stable + ngx_brotli dynamic modules ----
+# ---- Stage 1: compile official NGINX stable + ngx_brotli & headers-more dynamic modules ----
 FROM ${DEBIAN_BASE} AS nginx-builder
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG NGINX_VERSION
 ARG NGX_BROTLI_COMMIT
+ARG HEADERS_MORE_COMMIT
 ARG DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /src
@@ -31,7 +33,12 @@ RUN set -eux; \
     test "$(git -C /src/ngx_brotli rev-parse HEAD)" = "${NGX_BROTLI_COMMIT}"; \
     mkdir -p /src/ngx_brotli/deps/brotli/c; \
     ln -s /usr/include /src/ngx_brotli/deps/brotli/c/include; \
-    ln -s "/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)" /src/ngx_brotli/deps/brotli/out
+    ln -s "/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)" /src/ngx_brotli/deps/brotli/out; \
+    git init /src/headers-more-nginx-module; \
+    git -C /src/headers-more-nginx-module remote add origin https://github.com/openresty/headers-more-nginx-module.git; \
+    git -C /src/headers-more-nginx-module fetch --depth 1 origin "${HEADERS_MORE_COMMIT}"; \
+    git -C /src/headers-more-nginx-module checkout --detach FETCH_HEAD; \
+    test "$(git -C /src/headers-more-nginx-module rev-parse HEAD)" = "${HEADERS_MORE_COMMIT}"
 
 WORKDIR /src/nginx
 
@@ -76,7 +83,8 @@ RUN set -eux; \
       --with-stream_ssl_module \
       --with-stream_realip_module \
       --with-stream_ssl_preread_module \
-      --add-dynamic-module=/src/ngx_brotli; \
+      --add-dynamic-module=/src/ngx_brotli \
+      --add-dynamic-module=/src/headers-more-nginx-module; \
     make -j"$(nproc)"; \
     make DESTDIR=/out install; \
     rm -rf /out/var/log/nginx
@@ -113,6 +121,8 @@ RUN set -eux; \
     printf 'include /config/nginx/nginx.conf;\n' > /etc/nginx/nginx.conf; \
     printf 'load_module /usr/lib/nginx/modules/ngx_http_brotli_filter_module.so;\nload_module /usr/lib/nginx/modules/ngx_http_brotli_static_module.so;\n' \
       > /etc/nginx/modules/10_http_brotli.conf; \
+    printf 'load_module /usr/lib/nginx/modules/ngx_http_headers_more_filter_module.so;\n' \
+      > /etc/nginx/modules/10_http_headers_more.conf; \
     chown -R abc:abc /var/lib/nginx /var/log/nginx /run/php; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
