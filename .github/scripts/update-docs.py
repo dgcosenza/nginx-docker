@@ -7,6 +7,7 @@ import pathlib
 import re
 import sys
 
+
 def load_forbidden_regex() -> re.Pattern[str] | None:
     check_script = pathlib.Path(".github/scripts/public-check.sh")
     if not check_script.exists():
@@ -47,14 +48,26 @@ def build_readme_block(meta: dict, bullets: list[str]) -> str:
     ]
     for k, v in (meta.get("components") or {}).items():
         rows.append(f"| {k} | `{v}` |")
+    arches = meta.get("architectures") or []
+    if arches:
+        rows.append(f"| Architectures | `{', '.join(arches)}` |")
+    sizes = meta.get("sizes_mb") or {}
+    if sizes:
+        size_str = ", ".join(f"{k}: {v} MB" for k, v in sizes.items())
+        rows.append(f"| Uncompressed size (per arch) | `{size_str}` |")
     rows.append(f"| Last verified build (UTC) | `{meta.get('build_date', 'unknown')}` |")
     digest = meta.get("image_digest") or ""
     if digest:
-        rows.append(f"| Published digest | `{digest}` |")
+        rows.append(f"| Published multi-arch digest | `{digest}` |")
+    ghcr = meta.get("ghcr_digest") or ""
+    if ghcr:
+        rows.append(f"| GHCR mirror | `{ghcr}` |")
+    if meta.get("signed"):
+        rows.append("| Supply chain | Cosign OIDC signed + SPDX & CycloneDX SBOM attestations + SLSA Build L3 provenance |")
     fixable = meta.get("fixable_critical_high", 0)
     unfixed = len(meta.get("unfixed_cves") or [])
     rows.append(
-        f"| Security gate (Trivy + Grype) | **{fixable} fixable Critical/High** ({unfixed} upstream-unfixed) |"
+        f"| Security gate (Trivy + Grype on SBOM) | **{fixable} fixable Critical/High** ({unfixed} upstream-unfixed) |"
     )
 
     lines = [
@@ -94,8 +107,6 @@ def update_changelog(
     if not date_str:
         return
 
-    # Only add/update a daily changelog entry when something meaningful changed
-    # (upstream version/commit, component versions, base digest, CVEs fixed, or digest on a new date).
     digest = meta.get("image_digest") or ""
     prev_digest = prev_meta.get("image_digest") or ""
     fixed_cves = cve_diff.get("cves_fixed_since_previous") or []
@@ -104,6 +115,7 @@ def update_changelog(
         or meta.get("upstream_commit") != prev_meta.get("upstream_commit")
         or meta.get("components") != prev_meta.get("components")
         or meta.get("base_digest") != prev_meta.get("base_digest")
+        or meta.get("architectures") != prev_meta.get("architectures")
         or bool(fixed_cves)
         or (digest and digest != prev_digest)
     )
@@ -116,6 +128,9 @@ def update_changelog(
     if comps:
         comp_str = ", ".join(f"{k} `{v}`" for k, v in comps.items())
         entry_lines.append(f"- Verified components: {comp_str}.")
+    arches = meta.get("architectures") or []
+    if arches:
+        entry_lines.append(f"- Architectures verified: `{', '.join(arches)}` (native smoke tests + Dive efficiency gate).")
     if bullets:
         entry_lines.append("- Upstream changes:")
         for b in bullets[:5]:
@@ -126,14 +141,13 @@ def update_changelog(
         entry_lines.append(f"- CVEs resolved since previous scan: {', '.join(f'`{c}`' for c in fixed_cves)}.")
     else:
         entry_lines.append(
-            f"- Vulnerability gate: **0 fixable Critical/High** in Trivy and Grype "
+            f"- Vulnerability gate: **0 fixable Critical/High** in Trivy and Grype (SBOM scan) "
             f"({len(meta.get('unfixed_cves') or [])} upstream-unfixed)."
         )
     if digest:
-        entry_lines.append(f"- Published digest: `{digest}`.")
+        entry_lines.append(f"- Published multi-arch digest (Docker Hub + GHCR): `{digest}` (Cosign OIDC signed + SPDX/CycloneDX SBOM + SLSA L3 provenance).")
     entry_block = "\n".join(entry_lines)
 
-    # Check if an auto-generated section for this exact date already exists; replace it if so.
     date_section_re = re.compile(
         rf"^## \[[^\]]+\] — {re.escape(date_str)}\n+### Automated Daily Build\n.*?(?=\n---\n|\n## \[|\Z)",
         re.MULTILINE | re.DOTALL,
@@ -145,7 +159,6 @@ def update_changelog(
         if marker in text:
             new_text = text.replace(marker, f"{marker}\n\n{entry_block}\n\n---", 1)
         else:
-            # Insert after first horizontal rule
             new_text = re.sub(r"\n---\n", f"\n---\n\n{entry_block}\n\n---\n", text, count=1)
 
     if new_text != text:
@@ -181,7 +194,6 @@ def main() -> int:
     changes_text = changes_path.read_text(encoding="utf-8") if changes_path.exists() else ""
     bullets = sanitize_bullets(changes_text)
 
-    # Persist versions.json
     repo_versions.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     update_readme(pathlib.Path("README.md"), meta, bullets)
     update_changelog(pathlib.Path("CHANGELOG.md"), meta, prev_meta, bullets, cve_diff)

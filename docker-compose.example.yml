@@ -1,16 +1,27 @@
-# Example Docker Compose configuration for dgcosenza/nginx
+# Hardened Docker Compose example for dgcosenza/nginx
 # Replace 192.0.2.10 with your host's LAN IP and pin by @sha256 digest in production.
+# Available identically on Docker Hub (dgcosenza/nginx) and GHCR (ghcr.io/dgcosenza/nginx).
 
 services:
   nginx:
     image: dgcosenza/nginx:latest
     container_name: nginx
     restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=64m
+      - /run:nosuid,size=16m
     ports:
       - "192.0.2.10:443:443"
-      # - "192.0.2.10:80:80"
     environment:
       - PUID=1000
       - PGID=1000

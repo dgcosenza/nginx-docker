@@ -1,12 +1,20 @@
 # NGINX + Brotli + PHP 8.4 FPM — Debian 13 (trixie-slim) Image
 
 [![Daily NGINX image](https://github.com/dgcosenza/nginx-docker/actions/workflows/daily.yml/badge.svg)](https://github.com/dgcosenza/nginx-docker/actions/workflows/daily.yml)
+[![Packaging License: MIT](https://img.shields.io/badge/packaging-MIT-blue.svg)](https://github.com/dgcosenza/nginx-docker/blob/main/LICENSE)
+[![Upstream License: BSD-2-Clause](https://img.shields.io/badge/upstream-BSD--2--Clause-green.svg)](https://github.com/nginx/nginx/blob/master/docs/text/LICENSE)
+[![Signed with Cosign](https://img.shields.io/badge/signed-cosign%20OIDC-blueviolet.svg)](#supply-chain-verification)
+[![SLSA Level 3](https://img.shields.io/badge/SLSA-Level%203-brightgreen.svg)](#supply-chain-verification)
+[![Architectures](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-informational.svg)](#supported-architectures)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/dgcosenza/nginx-docker/badge)](https://scorecard.dev/viewer/?uri=github.com/dgcosenza/nginx-docker)
 [![Docker Pulls](https://img.shields.io/docker/pulls/dgcosenza/nginx)](https://hub.docker.com/r/dgcosenza/nginx)
 [![Docker Image Size](https://img.shields.io/docker/image-size/dgcosenza/nginx/latest)](https://hub.docker.com/r/dgcosenza/nginx)
+[![Latest Release](https://img.shields.io/github/v/release/dgcosenza/nginx-docker?label=version)](https://github.com/dgcosenza/nginx-docker/releases)
 
 A source-built **NGINX** (stable 1.30.x with **HTTP/3**, **Brotli**, and **PHP 8.4 FPM**) container image on **Debian 13 (`trixie-slim`)** with drop-in `/config` layout compatibility, maintained by **Daniel G. Cosenza from FNX Labs**.
 
 - **Docker Hub:** [`dgcosenza/nginx`](https://hub.docker.com/r/dgcosenza/nginx)
+- **GitHub Container Registry (GHCR):** [`ghcr.io/dgcosenza/nginx`](https://github.com/dgcosenza/nginx-docker/pkgs/container/nginx) (identical signed multi-arch digest)
 - **Source Repository:** [`dgcosenza/nginx-docker`](https://github.com/dgcosenza/nginx-docker)
 - **Upstream Projects:** [NGINX](https://nginx.org/) (2-clause BSD), [`google/ngx_brotli`](https://github.com/google/ngx_brotli) (2-clause BSD), [PHP 8.4](https://www.php.net/)
 - **Packaging License:** MIT (see [`LICENSE`](https://github.com/dgcosenza/nginx-docker/blob/main/LICENSE) and [`THIRD-PARTY-NOTICES.md`](https://github.com/dgcosenza/nginx-docker/blob/main/THIRD-PARTY-NOTICES.md))
@@ -59,10 +67,12 @@ image: dgcosenza/nginx:latest@sha256:<digest>
 
 ## Supported Architectures
 
-| Architecture | Status | Notes |
+| Architecture | Status | Verification |
 | --- | --- | --- |
-| `linux/amd64` | **Published & tested** | Built, smoke-tested, scanned with Trivy and Grype, and published to Docker Hub (`dgcosenza/nginx`). |
+| `linux/amd64` | **Published & natively tested** | Built, smoke-tested, Dive-gated, Syft/Trivy/Grype-scanned, and Cosign-signed on native x86_64 CI runners. |
+| `linux/arm64` | **Published & natively tested** | Built, smoke-tested, Dive-gated, Syft/Trivy/Grype-scanned, and Cosign-signed on native ARM64 CI runners. |
 
+Identical multi-arch OCI manifest digests are published to **Docker Hub** and **GHCR** (`ghcr.io/dgcosenza/*`), accompanied by automated signed [GitHub Releases](https://github.com/dgcosenza/nginx-docker/releases).
 ---
 
 ## Quick Start
@@ -160,6 +170,39 @@ This image is designed as a drop-in replacement for existing `/config` volumes:
 
 ---
 
+## Supply-Chain Verification
+
+Every published digest (multi-arch index and per-architecture manifests) on both Docker Hub and GHCR is keyless-signed with **Sigstore Cosign** (GitHub OIDC), attested with **SPDX** and **CycloneDX** SBOMs, and backed by **SLSA Build L3** provenance (`actions/attest-build-provenance`).
+
+### Verify image signature with Cosign
+
+```bash
+cosign verify \
+  --certificate-identity-regexp="^https://github\.com/dgcosenza/nginx-docker/\.github/workflows/daily\.yml@refs/heads/main$" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/dgcosenza/nginx:latest
+
+# Or against Docker Hub (identical digest):
+cosign verify \
+  --certificate-identity-regexp="^https://github\.com/dgcosenza/nginx-docker/\.github/workflows/daily\.yml@refs/heads/main$" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  dgcosenza/nginx:latest
+```
+
+### Verify SPDX / CycloneDX SBOM attestations and SLSA Build Provenance
+
+```bash
+cosign verify-attestation \
+  --type spdxjson \
+  --certificate-identity-regexp="^https://github\.com/dgcosenza/nginx-docker/\.github/workflows/daily\.yml@refs/heads/main$" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  ghcr.io/dgcosenza/nginx@sha256:<arch-digest>
+
+gh attestation verify oci://ghcr.io/dgcosenza/nginx:latest --owner dgcosenza
+```
+
+---
+
 ## Security
 
 - **Vulnerability scan policy:** Every CI build runs **Trivy** (table, JSON, SARIF upload to Code Scanning, and blocking `--ignore-unfixed` gate) and **Grype** (`--only-fixed`, severity cutoff `high`, blocking gate), plus generates an **SPDX SBOM** (`sbom.spdx.json`) and provenance artifact. Publication is blocked on any fixable `CRITICAL` or `HIGH` finding.
@@ -217,11 +260,11 @@ docker buildx build \
 
 ---
 
-## License and Credits
+## License
 
-- **Container packaging, entrypoint, CI, and documentation:** [MIT License](https://github.com/dgcosenza/nginx-docker/blob/main/LICENSE) — maintained by **Daniel G. Cosenza from FNX Labs**.
-- **NGINX:** [nginx.org](https://nginx.org/) — 2-clause BSD License.
-- **ngx_brotli:** [`google/ngx_brotli`](https://github.com/google/ngx_brotli) — 2-clause BSD License.
-- **PHP:** [The PHP Group](https://www.php.net/) — PHP License v3.01.
-- Full third-party notices: [`THIRD-PARTY-NOTICES.md`](https://github.com/dgcosenza/nginx-docker/blob/main/THIRD-PARTY-NOTICES.md).
-- Release history: [`CHANGELOG.md`](https://github.com/dgcosenza/nginx-docker/blob/main/CHANGELOG.md).
+This repository follows a clear packaging-vs-upstream license split:
+
+- **Container packaging, scripts, CI workflows, and documentation (`packaging: MIT`):** Licensed under the [MIT License](https://github.com/dgcosenza/nginx-docker/blob/main/LICENSE) — copyright **Daniel G. Cosenza from FNX Labs**.
+- **Bundled upstream software — NGINX (`nginx/nginx`, plus `google/ngx_brotli` and Debian 13 PHP 8.4) (`upstream: BSD-2-Clause`):** [NGINX](https://nginx.org/) and [`google/ngx_brotli`](https://github.com/google/ngx_brotli) are licensed under the [2-Clause BSD License (`BSD-2-Clause`)](https://github.com/nginx/nginx/blob/master/docs/text/LICENSE); PHP 8.4 is licensed under the PHP License v3.01.
+
+Full third-party notices are maintained in [`THIRD-PARTY-NOTICES.md`](https://github.com/dgcosenza/nginx-docker/blob/main/THIRD-PARTY-NOTICES.md). Release history is maintained in [`CHANGELOG.md`](https://github.com/dgcosenza/nginx-docker/blob/main/CHANGELOG.md).

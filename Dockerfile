@@ -1,26 +1,26 @@
 # syntax=docker/dockerfile:1.7
 
-ARG DEBIAN_BASE=debian:trixie-slim
+ARG DEBIAN_BASE=debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 ARG NGINX_VERSION=1.30.8
 ARG NGX_BROTLI_COMMIT=53e0fb55f250f48fe80c0ddbf6c0f7103cdbaae1
 
 # ---- Stage 1: compile official NGINX stable + ngx_brotli dynamic modules ----
 FROM ${DEBIAN_BASE} AS nginx-builder
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG NGINX_VERSION
 ARG NGX_BROTLI_COMMIT
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
-    && apt-get -y upgrade \
-    && apt-get install -y --no-install-recommends \
-       build-essential ca-certificates curl git libbrotli-dev libpcre2-dev \
-       libssl-dev zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /src
 
 RUN set -eux; \
+    apt-get update; \
+    apt-get -y upgrade; \
+    apt-get install -y --no-install-recommends \
+      build-essential ca-certificates curl dpkg-dev git libbrotli-dev libpcre2-dev \
+      libssl-dev zlib1g-dev; \
+    rm -rf /var/lib/apt/lists/*; \
     curl -fsSLo /src/nginx.tar.gz "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz"; \
     tar -xzf /src/nginx.tar.gz -C /src; \
     mv "/src/nginx-${NGINX_VERSION}" /src/nginx; \
@@ -31,7 +31,7 @@ RUN set -eux; \
     test "$(git -C /src/ngx_brotli rev-parse HEAD)" = "${NGX_BROTLI_COMMIT}"; \
     mkdir -p /src/ngx_brotli/deps/brotli/c; \
     ln -s /usr/include /src/ngx_brotli/deps/brotli/c/include; \
-    ln -s /usr/lib/x86_64-linux-gnu /src/ngx_brotli/deps/brotli/out
+    ln -s "/usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)" /src/ngx_brotli/deps/brotli/out
 
 WORKDIR /src/nginx
 
@@ -83,6 +83,7 @@ RUN set -eux; \
 
 # ---- Stage 2: hardened Debian 13 (trixie-slim) NGINX + PHP 8.4 FPM runtime ----
 FROM ${DEBIAN_BASE} AS runtime
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG NGINX_VERSION
 ARG NGX_BROTLI_COMMIT
@@ -91,23 +92,30 @@ ARG IMAGE_REVISION=""
 ARG IMAGE_SOURCE="https://github.com/dgcosenza/nginx-docker"
 ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
-    && apt-get -y upgrade \
-    && apt-get install -y --no-install-recommends \
-       ca-certificates curl inotify-tools libbrotli1 libpcre2-8-0 libssl3t64 \
-       openssl passwd procps tini tzdata zlib1g \
-       php8.4-fpm php8.4-cli php8.4-bcmath php8.4-bz2 php8.4-curl \
-       php8.4-gd php8.4-gmp php8.4-intl php8.4-ldap php8.4-mbstring \
-       php8.4-mysql php8.4-pgsql php8.4-soap php8.4-sqlite3 php8.4-xml \
-       php8.4-xsl php8.4-zip php-apcu php-igbinary php-memcached \
-       php-msgpack php-redis \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-# Create default abc user/group (UID/GID 1000, adjusted at boot via PUID/PGID)
-RUN groupadd --gid 1000 abc \
-    && useradd --uid 1000 --gid 1000 --create-home --home-dir /config \
-       --shell /usr/sbin/nologin --comment 'NGINX service user' abc
+RUN set -eux; \
+    apt-get update; \
+    apt-get -y upgrade; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates curl inotify-tools libbrotli1 libpcre2-8-0 libssl3t64 \
+      openssl passwd procps tini tzdata zlib1g \
+      php8.4-fpm php8.4-cli php8.4-bcmath php8.4-bz2 php8.4-curl \
+      php8.4-gd php8.4-gmp php8.4-intl php8.4-ldap php8.4-mbstring \
+      php8.4-mysql php8.4-pgsql php8.4-soap php8.4-sqlite3 php8.4-xml \
+      php8.4-xsl php8.4-zip php-apcu php-igbinary php-memcached \
+      php-msgpack php-redis; \
+    groupadd --gid 1000 abc; \
+    useradd --uid 1000 --gid 1000 --create-home --home-dir /config \
+      --shell /usr/sbin/nologin --comment 'NGINX service user' abc; \
+    mkdir -p /etc/nginx/modules /etc/nginx/conf.d /etc/nginx/http.d \
+      /var/lib/nginx/tmp/client_body /var/lib/nginx/tmp/proxy \
+      /var/lib/nginx/tmp/fastcgi /var/lib/nginx/tmp/uwsgi /var/lib/nginx/tmp/scgi \
+      /var/log/nginx /run/php /defaults /config; \
+    printf 'include /config/nginx/nginx.conf;\n' > /etc/nginx/nginx.conf; \
+    printf 'load_module /usr/lib/nginx/modules/ngx_http_brotli_filter_module.so;\nload_module /usr/lib/nginx/modules/ngx_http_brotli_static_module.so;\n' \
+      > /etc/nginx/modules/10_http_brotli.conf; \
+    chown -R abc:abc /var/lib/nginx /var/log/nginx /run/php; \
+    apt-get clean; \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Install compiled NGINX binary, dynamic brotli modules, and config scaffolding
 COPY --from=nginx-builder --chown=0:0 /out/usr/sbin/nginx /usr/sbin/nginx
@@ -117,22 +125,10 @@ COPY --from=nginx-builder --chown=0:0 /out/etc/nginx/fastcgi_params /etc/nginx/f
 COPY --from=nginx-builder --chown=0:0 /out/etc/nginx/fastcgi.conf /etc/nginx/fastcgi.conf
 COPY --from=nginx-builder --chown=0:0 /out/etc/nginx/uwsgi_params /etc/nginx/uwsgi_params
 COPY --from=nginx-builder --chown=0:0 /out/etc/nginx/scgi_params /etc/nginx/scgi_params
-
-RUN set -eux; \
-    mkdir -p /etc/nginx/modules /etc/nginx/conf.d /etc/nginx/http.d \
-      /var/lib/nginx/tmp/client_body /var/lib/nginx/tmp/proxy \
-      /var/lib/nginx/tmp/fastcgi /var/lib/nginx/tmp/uwsgi /var/lib/nginx/tmp/scgi \
-      /var/log/nginx /run/php /defaults /config; \
-    printf 'include /config/nginx/nginx.conf;\n' > /etc/nginx/nginx.conf; \
-    printf 'load_module /usr/lib/nginx/modules/ngx_http_brotli_filter_module.so;\nload_module /usr/lib/nginx/modules/ngx_http_brotli_static_module.so;\n' \
-      > /etc/nginx/modules/10_http_brotli.conf; \
-    chown -R abc:abc /var/lib/nginx /var/log/nginx /run/php; \
-    ldd /usr/sbin/nginx | grep -v 'not found'
-
-# Configure base PHP 8.4 FPM pool (listens on 127.0.0.1:9000 as user abc)
 COPY defaults/ /defaults/
-COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh
+COPY --chmod=0755 scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+RUN ldd /usr/sbin/nginx | tee /tmp/ldd.txt && ! grep -q 'not found' /tmp/ldd.txt && rm -f /tmp/ldd.txt
 
 ENV PUID=1000 \
     PGID=1000 \
@@ -148,14 +144,14 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 
 LABEL org.opencontainers.image.title="NGINX + PHP 8.4 FPM (Debian 13)" \
-      org.opencontainers.image.description="Source-built NGINX with ngx_brotli and PHP 8.4 FPM on Debian 13 (trixie-slim), maintained by Daniel G. Cosenza from FNX Labs." \
+      org.opencontainers.image.description="Source-built multi-arch NGINX with ngx_brotli and PHP 8.4 FPM on Debian 13 (trixie-slim), maintained by Daniel G. Cosenza from FNX Labs." \
       org.opencontainers.image.url="https://hub.docker.com/r/dgcosenza/nginx" \
       org.opencontainers.image.source="${IMAGE_SOURCE}" \
       org.opencontainers.image.documentation="${IMAGE_SOURCE}#readme" \
       org.opencontainers.image.version="${NGINX_VERSION}" \
       org.opencontainers.image.revision="${IMAGE_REVISION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.licenses="BSD-2-Clause AND MIT" \
       org.opencontainers.image.vendor="Daniel G. Cosenza from FNX Labs" \
       org.opencontainers.image.authors="Daniel G. Cosenza from FNX Labs" \
       org.opencontainers.image.base.name="debian:trixie-slim" \
