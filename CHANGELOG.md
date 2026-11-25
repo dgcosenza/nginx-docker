@@ -14,7 +14,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mai
 - Architectures verified: `linux/amd64, linux/arm64` (native smoke tests + Dive efficiency gate).
 - Upstream status: no new upstream release since previous build; refreshed base OS and dependencies.
 - Vulnerability gate: **0 fixable Critical/High** in Trivy and Grype (SBOM scan) (30 upstream-unfixed).
-- Published multi-arch digest (Docker Hub + GHCR): `dgcosenza/nginx@sha256:9c8f00affc0d81c20efe0dce458ace2f39394f599f40d840514bc204c0267a1b` (Cosign OIDC signed + SPDX/CycloneDX SBOM + SLSA L3 provenance).
+- Published multi-arch digest (Docker Hub + GHCR): `dgcosenza/nginx@sha256:a875e018fc265e0e1b917ba2341352030d448eebb142549e3500a835f39a74e3` (Cosign OIDC signed + SPDX/CycloneDX SBOM + SLSA L3 provenance).
 ---
 
 ## [1.30.8] — 2026-11-24
