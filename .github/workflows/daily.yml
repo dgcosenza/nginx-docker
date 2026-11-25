@@ -1,0 +1,468 @@
+name: Daily NGINX image
+
+on:
+  schedule:
+    # Daily rebuild at 04:31 UTC to pick up Debian 13 (trixie) security updates,
+    # PHP 8.4 updates, and new official stable NGINX releases.
+    - cron: '31 4 * * *'
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      nginx_version:
+        description: 'Override official NGINX stable version (leave empty for latest stable from nginx.org)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: dgcosenza/nginx
+  NGINX_VERSION_DEFAULT: '1.30.8'
+  NGX_BROTLI_COMMIT: '53e0fb55f250f48fe80c0ddbf6c0f7103cdbaae1'
+
+jobs:
+  public-check:
+    name: Public content check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+      - name: Verify public-content rules and maintainer attribution
+        env:
+          PR_TEXT: ${{ github.event.pull_request.title }} ${{ github.event.pull_request.body }}
+        run: .github/scripts/public-check.sh
+
+  build-scan-publish:
+    name: Build, smoke test, scan, and publish
+    needs: public-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      security-events: write
+    outputs:
+      published_digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Check upstream releases and resolve versions
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          NGINX_VER="${{ inputs.nginx_version }}"
+          if [ -z "$NGINX_VER" ]; then
+            # Resolve latest official stable (even minor version) from nginx.org Debian trixie packages feed
+            NGINX_VER="$(curl -fsSL https://nginx.org/packages/debian/dists/trixie/nginx/binary-amd64/Packages \
+              | awk '/^Package: nginx$/{p=1} p && /^Version:/{print $2; p=0}' \
+              | sed 's/-.*//' \
+              | sort -Vu \
+              | tail -n 1)"
+          fi
+          if [ -z "$NGINX_VER" ]; then
+            NGINX_VER="${NGINX_VERSION_DEFAULT}"
+          fi
+
+          BASE_DIGEST="$(curl -fsSL "https://hub.docker.com/v2/repositories/library/debian/tags/trixie-slim" \
+            | jq -r '.digest // (.images[]? | select(.architecture=="amd64") | .digest) // empty' | head -n1)"
+
+          BUILD_DATE="$(date -u +%Y%m%d)"
+          BUILD_DATE_ISO="$(date -u +%Y-%m-%d)"
+          CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          PREV_VER="$(jq -r '.upstream_version // empty' versions.json 2>/dev/null || true)"
+          PREV_BASE="$(jq -r '.base_digest // empty' versions.json 2>/dev/null || true)"
+
+          {
+            echo "# Upstream Changes (${BUILD_DATE_ISO})"
+            if [ -n "$PREV_VER" ] && [ "$PREV_VER" != "$NGINX_VER" ]; then
+              echo "- Official stable NGINX updated from ${PREV_VER} to ${NGINX_VER}."
+            fi
+            if [ -n "$BASE_DIGEST" ] && [ -n "$PREV_BASE" ] && [ "$BASE_DIGEST" != "$PREV_BASE" ]; then
+              echo "- Refreshed debian:trixie-slim base image digest."
+            fi
+          } > upstream-changes.md
+
+          {
+            echo "nginx_version=${NGINX_VER}"
+            echo "base_digest=${BASE_DIGEST}"
+            echo "build_date=${BUILD_DATE}"
+            echo "build_date_iso=${BUILD_DATE_ISO}"
+            echo "created=${CREATED}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Resolved NGINX=${NGINX_VER}, base=${BASE_DIGEST}"
+
+      - name: Upload upstream changes artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: upstream-changes
+          path: upstream-changes.md
+          retention-days: 90
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build linux/amd64 image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          no-cache: ${{ github.event_name == 'schedule' }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:ci-candidate
+          build-args: |
+            NGINX_VERSION=${{ steps.resolve.outputs.nginx_version }}
+            NGX_BROTLI_COMMIT=${{ env.NGX_BROTLI_COMMIT }}
+            BUILD_DATE=${{ steps.resolve.outputs.created }}
+            IMAGE_REVISION=${{ github.sha }}
+            IMAGE_SOURCE=https://github.com/${{ github.repository }}
+
+      - name: Inspect resolved OS/PHP versions and emit provenance metadata
+        id: inspect_image
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEBIAN_VERSION="$(docker run --rm --entrypoint cat "${IMAGE_NAME}:ci-candidate" /etc/debian_version | tr -d '\r\n')"
+          PHP_VERSION="$(docker run --rm --entrypoint php "${IMAGE_NAME}:ci-candidate" -r 'echo PHP_VERSION;' | tr -d '\r\n')"
+          echo "debian_version=${DEBIAN_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "php_version=${PHP_VERSION}" >> "$GITHUB_OUTPUT"
+          jq -n \
+            --arg image "${IMAGE_NAME}" \
+            --arg nginx_version "${{ steps.resolve.outputs.nginx_version }}" \
+            --arg php_version "${PHP_VERSION}" \
+            --arg debian_version "${DEBIAN_VERSION}" \
+            --arg base_digest "${{ steps.resolve.outputs.base_digest }}" \
+            --arg created "${{ steps.resolve.outputs.created }}" \
+            --arg revision "${GITHUB_SHA}" \
+            --arg run_url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            '{image: $image, nginx_version: $nginx_version, php_version: $php_version, debian_version: $debian_version, base_digest: $base_digest, created: $created, git_revision: $revision, run_url: $run_url}' \
+            > provenance.json
+          echo "Detected Debian=${DEBIAN_VERSION}, PHP=${PHP_VERSION}"
+
+      - name: Smoke-test NGINX, Brotli, PHP 8.4 FPM, non-root workers, and negative healthcheck
+        shell: bash
+        run: ./tests/smoke.sh "${IMAGE_NAME}:ci-candidate"
+
+      - name: Scan image with Trivy — full table report (informational)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'table'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          output: 'trivy-report.txt'
+
+      - name: Scan image with Trivy — full JSON report for CVE diffing
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'json'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+          output: 'trivy-report.json'
+
+      - name: Compute CVE diff against previous build
+        shell: bash
+        run: python3 .github/scripts/cve-diff.py versions.json trivy-report.json cve-diff.json
+
+      - name: Scan image with Trivy — SARIF for code scanning
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'sarif'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          output: 'trivy-results.sarif'
+          exit-code: '0'
+
+      - name: Upload Trivy SARIF to code scanning
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: trivy-nginx
+
+      - name: Upload Trivy and provenance artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-report
+          path: |
+            trivy-report.txt
+            trivy-report.json
+            cve-diff.json
+            provenance.json
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Scan image with Trivy — HARD GATE (fail on any fixable CRITICAL or HIGH)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'table'
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Scan image with Grype — HARD GATE (fail on any fixable CRITICAL or HIGH)
+        id: grype
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: anchore/scan-action@v7
+        with:
+          image: '${{ env.IMAGE_NAME }}:ci-candidate'
+          only-fixed: true
+          severity-cutoff: high
+          fail-build: true
+          output-format: table
+          output-file: grype-report.txt
+
+      - name: Upload Grype report artifact
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: grype-report
+          path: grype-report.txt
+          retention-days: 90
+          if-no-files-found: ignore
+
+      - name: Generate SBOM with Syft
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: anchore/sbom-action@v0
+        with:
+          image: '${{ env.IMAGE_NAME }}:ci-candidate'
+          format: 'spdx-json'
+          artifact-name: 'sbom.spdx.json'
+          upload-artifact-retention: 90
+
+      - name: Check Docker Hub publish credentials
+        id: hub_auth
+        shell: bash
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ] && [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            echo "can_publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_publish=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Docker Hub push (PR event or DOCKERHUB_USERNAME/DOCKERHUB_TOKEN not configured)."
+          fi
+
+      - name: Log in to Docker Hub
+        if: steps.hub_auth.outputs.can_publish == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag and push verified image to Docker Hub
+        if: steps.hub_auth.outputs.can_publish == 'true'
+        id: push
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="${{ steps.resolve.outputs.nginx_version }}"
+          BDATE="${{ steps.resolve.outputs.build_date }}"
+
+          DATE_TAG="${IMAGE_NAME}:${VER}-${BDATE}"
+          VERSION_TAG="${IMAGE_NAME}:${VER}"
+          SHA_TAG="${IMAGE_NAME}:sha-${GITHUB_SHA::7}"
+          LATEST_TAG="${IMAGE_NAME}:latest"
+
+          for tag in "$DATE_TAG" "$VERSION_TAG" "$SHA_TAG" "$LATEST_TAG"; do
+            docker tag "${IMAGE_NAME}:ci-candidate" "$tag"
+            docker push "$tag"
+          done
+
+          DIGEST="$(docker inspect --format='{{index .RepoDigests 0}}' "$LATEST_TAG")"
+          echo "Published digest: ${DIGEST}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Build updated versions metadata
+        shell: bash
+        env:
+          PUBLISHED_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg image "${IMAGE_NAME}" \
+            --arg upstream_name "nginx.org" \
+            --arg upstream_version "${{ steps.resolve.outputs.nginx_version }}" \
+            --arg upstream_commit "${NGX_BROTLI_COMMIT}" \
+            --arg php_version "${{ steps.inspect_image.outputs.php_version }}" \
+            --arg debian_version "${{ steps.inspect_image.outputs.debian_version }}" \
+            --arg base_digest "${{ steps.resolve.outputs.base_digest }}" \
+            --arg build_date "${{ steps.resolve.outputs.build_date_iso }}" \
+            --arg built_at_utc "${{ steps.resolve.outputs.created }}" \
+            --arg image_digest "${PUBLISHED_DIGEST}" \
+            --slurpfile cve cve-diff.json \
+            '{
+              image: $image,
+              upstream_name: $upstream_name,
+              upstream_version: $upstream_version,
+              upstream_commit: $upstream_commit,
+              changelog_version: $upstream_version,
+              components: {
+                "NGINX": $upstream_version,
+                "ngx_brotli": ($upstream_commit[0:7]),
+                "PHP-FPM": $php_version,
+                "Base OS": ("Debian " + $debian_version + " (trixie-slim)")
+              },
+              base_image: "debian:trixie-slim",
+              base_digest: $base_digest,
+              debian_version: $debian_version,
+              build_date: $build_date,
+              built_at_utc: $built_at_utc,
+              image_digest: $image_digest,
+              fixable_critical_high: ($cve[0].fixable_critical_high // 0),
+              unfixed_cves: ($cve[0].unfixed_cves // [])
+            }' > versions-new.json
+
+      - name: Upload release metadata artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-metadata
+          path: |
+            versions-new.json
+            upstream-changes.md
+            cve-diff.json
+          retention-days: 90
+
+  update-docs:
+    name: Update docs and sync Docker Hub overview
+    needs: build-scan-publish
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Download release metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: release-metadata
+          path: .ci-meta
+
+      - name: Update versions.json, README.md, and CHANGELOG.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/update-docs.py \
+            .ci-meta/versions-new.json \
+            .ci-meta/upstream-changes.md \
+            .ci-meta/cve-diff.json
+          rm -rf .ci-meta
+          .github/scripts/public-check.sh
+
+      - name: Commit and push updated documentation (if changed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain versions.json README.md CHANGELOG.md)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add versions.json README.md CHANGELOG.md
+            git commit -m "chore(docs): update daily build metadata and changelog [skip ci]"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          else
+            echo "No documentation or version metadata changes to commit."
+          fi
+
+      - name: Check Docker Hub sync credentials
+        id: hub_sync
+        shell: bash
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          DH_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$DH_USER" ] && [ -n "$DH_TOKEN" ]; then
+            DESC="$(tr -d '\r\n' < DOCKERHUB_SHORT_DESCRIPTION)"
+            if [ "${#DESC}" -gt 100 ]; then
+              echo "ERROR: DOCKERHUB_SHORT_DESCRIPTION exceeds 100 characters (${#DESC})." >&2
+              exit 1
+            fi
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "short_desc=${DESC}" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sync Docker Hub repository overview (short & full description)
+        if: steps.hub_sync.outputs.enabled == 'true'
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE_NAME }}
+          short-description: ${{ steps.hub_sync.outputs.short_desc }}
+          readme-filepath: ./README.md
+
+  alert-on-status:
+    name: Manage CI failure alert issue
+    needs: [public-check, build-scan-publish, update-docs]
+    if: always() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Open/update or auto-close ci-failure issue
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RES_PUBLIC: ${{ needs.public-check.result }}
+          RES_BUILD: ${{ needs.build-scan-publish.result }}
+          RES_DOCS: ${{ needs.update-docs.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          FAILED=()
+          [ "$RES_PUBLIC" != "success" ] && FAILED+=("public-check (${RES_PUBLIC})")
+          [ "$RES_BUILD" != "success" ] && FAILED+=("build-scan-publish (${RES_BUILD})")
+          [ "$RES_DOCS" != "success" ] && FAILED+=("update-docs (${RES_DOCS})")
+
+          OPEN_ISSUE="$(gh issue list -R "$GITHUB_REPOSITORY" --label ci-failure --state open --json number --jq '.[0].number // empty')"
+
+          if [ "${#FAILED[@]}" -gt 0 ]; then
+            gh label create ci-failure --repo "$GITHUB_REPOSITORY" --color B60205 --description "Automated daily CI failure alert" --force >/dev/null 2>&1 || true
+            FAIL_LIST="$(IFS=', '; echo "${FAILED[*]}")"
+            TITLE="Daily build failed: ${FAIL_LIST}"
+            BODY="$(printf 'Automated daily pipeline failed on `%s` (%s UTC).\n\n- **Failing job(s):** %s\n- **Event:** `%s`\n- **Workflow run:** %s\n' \
+              "$GITHUB_REF_NAME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$FAIL_LIST" "${{ github.event_name }}" "$RUN_URL")"
+            if [ -n "$OPEN_ISSUE" ]; then
+              gh issue edit "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+              gh issue comment "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY" --body "Latest failing run: ${RUN_URL} (${FAIL_LIST})."
+            else
+              gh issue create -R "$GITHUB_REPOSITORY" --label ci-failure --title "$TITLE" --body "$BODY"
+            fi
+          elif [ -n "$OPEN_ISSUE" ]; then
+            gh issue comment "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY" --body "Daily pipeline recovered and passed on ${RUN_URL}. Closing automatically."
+            gh issue close "$OPEN_ISSUE" -R "$GITHUB_REPOSITORY"
+          else
+            echo "All jobs succeeded and no open ci-failure issue exists."
+          fi
