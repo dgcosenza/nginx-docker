@@ -13,7 +13,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Mai
 - Verified components: NGINX `1.30.8`, ngx_brotli `53e0fb5`, PHP-FPM `8.4.28`, Base OS `Debian 13.8 (trixie-slim)`.
 - Upstream status: no new upstream release since previous build; refreshed base OS and dependencies.
 - Vulnerability gate: **0 fixable Critical/High** in Trivy and Grype (30 upstream-unfixed).
-
+- Published digest: `dgcosenza/nginx@sha256:5ec247507ada2cd1d81e4092e770097aac268beb4ed04931c46ae75b3f7d4ca4`.
 ---
 
 ## [1.30.8] — 2026-11-24

@@ -34,6 +34,7 @@ A source-built **NGINX** (stable 1.30.x with **HTTP/3**, **Brotli**, and **PHP 8
 | PHP-FPM | `8.4.28` |
 | Base OS | `Debian 13.8 (trixie-slim)` |
 | Last verified build (UTC) | `2026-11-25` |
+| Published digest | `dgcosenza/nginx@sha256:5ec247507ada2cd1d81e4092e770097aac268beb4ed04931c46ae75b3f7d4ca4` |
 | Security gate (Trivy + Grype) | **0 fixable Critical/High** (30 upstream-unfixed) |
 <!-- versions:end -->
 
