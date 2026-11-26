@@ -27,6 +27,27 @@ docker run -d --name "$NAME" \
   -v "${TMPCONF}:/config" \
   "$IMAGE"
 
+# Wait for Docker HEALTHCHECK to report healthy
+HEALTHY=0
+for _ in $(seq 1 90); do
+  STATUS="$(docker inspect --format '{{.State.Health.Status}}' "$NAME" 2>/dev/null || echo "missing")"
+  if [ "$STATUS" = "healthy" ]; then
+    HEALTHY=1
+    break
+  fi
+  if [ "$STATUS" = "missing" ] || [ "$(docker inspect --format '{{.State.Running}}' "$NAME" 2>/dev/null || echo false)" != "true" ]; then
+    echo "ERROR: nginx container exited prematurely (status=${STATUS}):" >&2
+    docker logs "$NAME" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+if [ "$HEALTHY" -ne 1 ]; then
+  echo "ERROR: Container did not become healthy within 90s (status=${STATUS:-unknown})" >&2
+  docker logs "$NAME" >&2 || true
+  exit 1
+fi
+
 # Wait for HTTPS 200 on container loopback
 READY=0
 for _ in $(seq 1 30); do
