@@ -28,7 +28,7 @@ A source-built **NGINX** (stable 1.30.x with **HTTP/3**, **Brotli**, and **PHP 8
 - **Drop-in `/config` compatibility:** Preserves `PUID`/`PGID` (user `abc`), `/config/nginx/nginx.conf` (included from `/etc/nginx/nginx.conf`), `/config/nginx/site-confs/*.conf`, `/config/nginx/ssl.conf`, `/config/keys/cert.{crt,key}`, `/config/php/php-local.ini`, `/config/php/www2.conf`, `/config/log/`, and `/config/www/`.
 - **Built-in Brotli & PHP-FPM:** Ships `/etc/nginx/modules/10_http_brotli.conf` (`ngx_http_brotli_filter_module.so` + `ngx_http_brotli_static_module.so`) and `php-fpm8.4` listening on `127.0.0.1:9000` with common extensions (`apcu`, `bcmath`, `bz2`, `curl`, `gd`, `gmp`, `igbinary`, `intl`, `ldap`, `mbstring`, `memcached`, `msgpack`, `mysql`, `pgsql`, `redis`, `soap`, `sqlite3`, `xml`, `xsl`, `zip`).
 - **Built-in config auto-reload:** Enable `AUTO_RELOAD=true` (or keep `DOCKER_MODS=linuxserver/mods:swag-auto-reload`) to watch `/config/nginx` via `inotifywait` and reload NGINX automatically after `nginx -t` validation — no external runtime mod downloads needed.
-- **Hardened & CVE-gated (all severities with a fix):** Runs with `tini` as PID 1, compatible with `security_opt: no-new-privileges:true`, workers run as non-root `abc`, and every daily build enforces **0 fixable findings of any severity** findings in both Trivy and Grype.
+- **Hardened & CVE-gated (all severities with a fix):** Runs with `tini` as PID 1, compatible with `security_opt: no-new-privileges:true`, workers run as non-root `abc`, and every daily build enforces **0 fixable findings of any severity** in both Trivy and Grype.
 
 ---
 
@@ -210,7 +210,7 @@ gh attestation verify oci://ghcr.io/dgcosenza/nginx:latest --owner dgcosenza
 ## Security
 
 - **Vulnerability scan policy (all severities with a fix):** Every CI build runs **Trivy** (table, JSON, SARIF upload to Code Scanning, and blocking `--ignore-unfixed` gate) and **Grype** (`--only-fixed`, severity cutoff `negligible`, blocking gate), plus generates an **SPDX SBOM** (`sbom.spdx.json`) and provenance artifact. Publication is blocked on any fixable finding of any severity.
-- **Current status:** **0 fixable findings of any severity** vulnerabilities across Debian 13 OS packages, PHP 8.4, and source-built NGINX.
+- **Current status:** **0 fixable vulnerabilities of any severity** across Debian 13 OS packages, PHP 8.4, and source-built NGINX.
 - **Hardening:** `tini` PID 1, `no-new-privileges:true` compatible, worker processes drop to non-root `abc` (`PUID:PGID`), compilers excluded from runtime layer, `server_tokens off` and `expose_php = Off` in defaults.
 - See [`SECURITY.md`](https://github.com/dgcosenza/nginx-docker/blob/main/SECURITY.md).
 
