@@ -9,8 +9,8 @@ Only the latest daily build of `dgcosenza/nginx` built from the latest official 
 ## Automated Vulnerability Scanning
 
 Every build in GitHub Actions enforces:
-- **Trivy** (`--ignore-unfixed`, severity `CRITICAL,HIGH`) blocking gate + full table/JSON reports + SARIF upload to GitHub Code Scanning.
-- **Grype** (`--only-fixed`, severity cutoff `high`) blocking gate + persisted report artifact.
+- **Trivy** (`--ignore-unfixed`, all severities `UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL`) blocking gate + full table/JSON reports + SARIF upload to GitHub Code Scanning.
+- **Grype** (`--only-fixed --fail-on negligible`, all severities) blocking gate + persisted report artifact.
 - **Syft** SPDX SBOM (`sbom.spdx.json`) and build provenance artifacts.
 
 Daily scheduled builds run with `--no-cache`, upgrade all Debian 13 packages and PHP 8.4 security updates, and track the latest official stable NGINX release from `nginx.org`.
