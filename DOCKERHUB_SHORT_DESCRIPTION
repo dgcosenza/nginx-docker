@@ -1,1 +1,1 @@
-Source-built NGINX 1.30 + Brotli + PHP 8.4 FPM on Debian 13, drop-in /config layout, 0 CVEs.
+Source-built NGINX 1.30 + Brotli + PHP 8.4 FPM on Debian 13, /config parity, 0 fixable CVEs.
